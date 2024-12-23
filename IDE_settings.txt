@@ -1,0 +1,3 @@
+Decive: ESP32 Wrover Module
+Partitions Scheme: No OTA (2MB APP / 2MB Spiffs)
+baud: 115200

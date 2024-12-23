@@ -75,6 +75,8 @@ class BMS {
       return power;
     }
 
+    //alte berechnung ueber spannung
+    /*
     int getBatteryPercent() {
       voltageBuffer_[voltageBufferIdx] = getVoltage();
       voltageBufferIdx++;
@@ -88,29 +90,66 @@ class BMS {
       int batteryPercent = round(((bufferSum / 10.0) - 42.0) * (100.0 / 12.2)); //full 54.2V empty 42V
       return batteryPercent;
     }
+    */
 
-    void updateAmpHour() {
+    int getBatteryPercent() {
+      if ((millis() - timeStartRange_) > 5000) { //in den ersten paar sekunden kommen falsche werte
+        if (startCapacityWh_ < 1.0) {
+          startCapacityWh_ = (getVoltage() - VOLTAGE_EMPTY_) * AVERAGE_Wh_PRO_VOLT_;       
+          restCapacityWh_ = startCapacityWh_;
+        } else {
+          restCapacityWh_ = startCapacityWh_ - getWattHour();
+        }
+      } 
+      int batteryPercent = round((100.0 / CAPACITY_FULL_BAT_) * restCapacityWh_);
+      if (batteryPercent > 100) {
+        batteryPercent = 100;
+      }
+      if (batteryPercent < 0) {
+        batteryPercent = 0;
+      }
+      return batteryPercent;
+    }
+
+    void updateAmpWattHour() {
       int timeframe = millis() - timeAmpCalc_;
       timeAmpCalc_ = millis(); 
       Serial.print("loop time amp calc: ");
       Serial.println(timeframe);
       if (timeframe < 700) { //greater 700 --> unrealistic value
         ampMilliSec_ = round(ampMilliSec_ + (getCurrent() * timeframe));
-        ampHour_ = ampMilliSec_ / 3600000.0; //aktuell amp sek.. /3600000 fuer amp stunden
+        wattMilliSec_ = round(wattMilliSec_ + (getCurrent() * getVoltage() * timeframe));
+        ampHour_ = ampMilliSec_ / 3600000.0; 
+        wattHour_ = wattMilliSec_ / 3600000.0;
+      } else {
+        Serial.println("WARNING: loop takes too long");
       }
     }
 
-    float getAmpHour() {
+    float getAmpHour() { //not in use 
       return ampHour_;
     }
 
-    float getAmphPerKm(float km) {
+    float getWattHour() {
+      return wattHour_;
+    }
+
+    float getAmphPerKm(float km) { //not in use
       if (km > 0.01) {
         amphPerKm_ = ampHour_ / km;
       }
       return amphPerKm_;
     }
 
+    float getWatthPerKm(float km) {
+      if (km > 0.01) {
+        watthPerKm_ = wattHour_ / km;
+      }
+      return watthPerKm_;
+    }
+
+    //alte berechnung
+    /*
     int getRange() {
       int range = 0;
       if ((millis() - timeStartRange_) < 10000) { //in den ersten paar sekunden kommen falsche werte
@@ -120,6 +159,24 @@ class BMS {
       }
       return range;
     }
+    */
+
+    int getRange() {
+      int range = 0;
+      range = round(restCapacityWh_ / watthPerKm_);
+      return range;
+    }
+
+    void checkVoltage() {
+      float volt = getVoltage();
+      if (volt < 44.5 && volt > 42.0 ) { //assumption 3.5V drop while acceleration: speed 2 between 47.5V and 45V
+        errorMsg_ = "Low Voltage: Switch to Speed 2";
+      }
+      if (volt <= 42.0 && volt > 37.0 ) { //assumption 3.5V drop while acceleration: speed 1 below 45V
+        errorMsg_ = "Very Low Voltage: Switch to Speed 1";
+      }
+    }
+
 
     float getMaxCellVoltage() {
       uint16_t iMaxCellVoltage = 0;
@@ -180,7 +237,7 @@ class BMS {
 
     std::string getErrorMsg() {
       //uint8_t testData[13] = {0xa5, 0x80, 0x97, 0x08, 0x02, 0x00, 0x40, 0x00, 0xa4, 0x00, 0x00, 0x00, 0xc4} ;
-      errorMsg_ = "";
+      //errorMsg_ = "";
       for(int byteIdx = 0; byteIdx < 7; byteIdx++) {
         for(int bitIdx = 0; bitIdx < 8; bitIdx++) {
           int isBitSet = currentBmsData_[8][4+byteIdx] & (0x1 << bitIdx);
@@ -300,11 +357,20 @@ class BMS {
     float voltageBuffer_[10] = {53.0, 53.0, 53.0, 53.0, 53.0, 53.0, 53.0, 53.0, 53.0, 53.0};
     int ampMilliSec = 0;
     float restCapacity_ = 0.0;
+    float startCapacityWh_ = 0.0;
+    float restCapacityWh_ = 0.0;
     float ampHour_ = 0.0;
-    float amphPerKm_ = 0.65;
+    float wattHour_ = 0.0;
+    float amphPerKm_ = 0.55;
+    float watthPerKm_ = 26.5;
     uint8_t voltageBufferIdx = 0;
     int ampMilliSec_ = 0;
+    int wattMilliSec_ = 0;
     std::string errorMsg_;
     unsigned long timeAmpCalc_ = millis();
     unsigned long timeStartRange_ = millis();
+    static const int VOLTAGE_EMPTY_ = 44; //40V limit --> 4V voltage drop while acceleration
+    static const int AVERAGE_Wh_PRO_VOLT_ = 135; //Wh/V average out of drive data
+    static const int CAPACITY_FULL_BAT_ = 1296; //Wh 53.6V full battery average out of drive data -> 53.6-44=9.6 -> 9.6*135=12964Wh
+
 };

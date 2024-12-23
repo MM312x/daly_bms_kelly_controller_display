@@ -96,8 +96,8 @@ int readTotalKmFromSD() {
   return 0;
 }
 
-void createFilename(byte dayOfMonth, byte month, byte year, byte hour, byte min, int tempValue) { 
-  filename = "/" + String(dayOfMonth, DEC) + "_" + String(month) + "_" + String(year, DEC) + "_" + String(hour, DEC) + "_" + String(min, DEC) + "_" + String(tempValue) + ".txt" + "\r\n";
+void createFilename(int totalKm, byte dayOfMonth, byte month, byte year, byte hour, byte min, int tempValue) { 
+  filename = "/" + String(totalKm) + "_" + String(dayOfMonth, DEC) + "_" + String(month) + "_" + String(year, DEC) + "_" + String(hour, DEC) + "_" + String(min, DEC) + "_" + String(tempValue) + ".txt" + "\r\n";
   //Serial.print("filename: ");
   //Serial.println(filename.c_str());
 }

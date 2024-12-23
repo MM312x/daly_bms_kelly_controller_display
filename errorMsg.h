@@ -1,28 +1,42 @@
-//to do: Error log to SD Card
+//to do: log error to sd card?
 
-class errorHandling {
-  public:
-    void setErrorMsg(std::string msg) {
-      errorFlag = true;
-      errorMsg = errorMsg + msg;
-      Serial.print("error Message: ");
-      Serial.println(errorMsg.c_str());
+class ErrorManager {
+private:
+    std::unordered_map<std::string, unsigned long> errorMap; // Map of errors
+    unsigned long errorVisibilityDuration = 60000;   // 30 seconds
+
+public:
+    // Add or update an error
+    void reportError(const std::string& errorMessage, unsigned long currentTime) {
+        errorMap[errorMessage] = currentTime;
+    }
+    
+    // check if errors existing
+    bool checkErrorActive() {
+        if (errorMap.empty()) {
+            return false;
+        } else {
+            return true;
+        }
     }
 
-    bool getErrorFlag() {
-      return errorFlag;
+    // Clear inactive errors that exceeded visibility duration
+    void clearExpiredErrors(unsigned long currentTime) {
+        for (auto it = errorMap.begin(); it != errorMap.end(); ) {
+            if (currentTime - it->second > errorVisibilityDuration) {
+                it = errorMap.erase(it);  // Erase and move to the next element
+            } else {
+                ++it;  // Only increment if we didn't erase
+            }
+        }
     }
 
-    void resetError() {
-      errorFlag = false;
-      errorMsg = "";
+    // Display all active errors
+    std::string getErrorMsgs() {
+        std::string allErrorMsgs = "";
+        for (auto errors : errorMap) {
+            allErrorMsgs = allErrorMsgs + " & " + errors.first;
+        }
+        return allErrorMsgs;
     }
-
-    std::string getErrorMsg() {
-      return errorMsg;
-    }
-
-  private:
-    bool errorFlag = false;
-    std::string errorMsg = "";
 };

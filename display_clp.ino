@@ -2,6 +2,8 @@
 
 #include <Wire.h>
 #include <vector>
+#include <string>
+#include <unordered_map>
 #include <Temperature_LM75_Derived.h>
 #include <HardwareSerial.h>
 #include "BLEDevice.h"
@@ -21,8 +23,8 @@
 
 
 //Define GPIO
-#define blinkerLeft 35
-#define blinkerRight 12
+#define blinkerLeft 12
+#define blinkerRight 35
 #define highBeam 34
 #define batteryCooling 5
 #define brightnessSensor 32
@@ -35,7 +37,8 @@ Kelly kelly;
 bool dataUpdated = true;
 BMS BMS;
 
-errorHandling errorHandler;
+ErrorManager errorManager;
+unsigned long currentTime;
 Generic_LM75 tempSensorPCB(0x48);
 
 //BT callback when msg received
@@ -68,8 +71,8 @@ void updateDisplayBMS() {
   lv_label_set_text_fmt(ui_cellDiffLabel, "%.3f V", BMS.getCellDiffVoltage()); 
   lv_label_set_text_fmt(ui_batteryPercentLabel, "%d %%", BMS.getBatteryPercent());
   lv_slider_set_value(ui_batteryFillLevelSlider, BMS.getBatteryPercent(), LV_ANIM_ON);
-  lv_label_set_text_fmt(ui_ecoLabel, "%.2f Ah", BMS.getAmpHour());
-  lv_label_set_text_fmt(ui_averageAhLabel, "%.2f Ah/Km", BMS.getAmphPerKm(kelly.getDayKm()));
+  lv_label_set_text_fmt(ui_ecoLabel, "%.2f Wh", BMS.getWattHour());
+  lv_label_set_text_fmt(ui_averageAhLabel, "%.2f Wh/Km", BMS.getWatthPerKm(kelly.getDayKm()));
   lv_label_set_text_fmt(ui_rangeLabel, "%d Km", BMS.getRange()); 
 }
 
@@ -108,6 +111,14 @@ void updateDisplayGPIO() {
     tft.setBrightness(180);
   } else {
     tft.setBrightness(50);
+  }
+}
+
+void switchBatteryCooling() {
+  if (BMS.getMaxBatteryTemp() > 22) {
+    digitalWrite(batteryCooling, HIGH);
+  } else {
+    digitalWrite(batteryCooling, LOW);
   }
 }
 
@@ -163,11 +174,11 @@ void setup() {
     int tempValue = round(tempSensorPCB.readTemperatureC());
     byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
     readDS3231TimeDate(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
-    createFilename(dayOfMonth, month, year, hour, minute, tempValue);
+    createFilename(readTotalKmFromSD(), dayOfMonth, month, year, hour, minute, tempValue);
     kelly.setTotalKmOld(readTotalKmFromSD());
   } else {
     kelly.setTotalKmOld(0);
-    errorHandler.setErrorMsg("SD Card Mount Failed --> no SD Card");
+    errorManager.reportError("SD Card Mount Failed --> no SD Card", millis());
   }
   
   // BLE init
@@ -181,10 +192,11 @@ void setup() {
   }
   delay(100);
   KellySerial.write(kelly.command[0], 3);
+  updateDisplayTemp();
 
   //***************************Set Time RTC********************
   // DS3231 seconds, minutes, hours, day (1=sunday), date, month, year
-  //setDS3231time(30,22,17,6,19,5,23);
+  //setDS3231time(30,25,12,3,17,12,24);
   //**************************************************************
 }
 
@@ -192,6 +204,7 @@ void setup() {
 void loop() {
   // display handler
   lv_timer_handler();
+  currentTime = millis();
   
   //Bluetooth connect and request data from BMS
   if (btConnected) {
@@ -213,10 +226,11 @@ void loop() {
         //Serial.print("Request BMS Data: "); 
         //Serial.println(BMS.msgData);
       }
-      BMS.updateAmpHour();
+      BMS.updateAmpWattHour();
       updateDisplayBMS();
+      BMS.checkVoltage();
       if (BMS.errorActive()) {
-        errorHandler.setErrorMsg(BMS.getErrorMsg());
+        errorManager.reportError(BMS.getErrorMsg(), currentTime);
       }
     }
   } else {
@@ -224,7 +238,7 @@ void loop() {
       btConnected = true;
       Serial.println("We are now connected to the BLE Server.");
     } else {
-      errorHandler.setErrorMsg("BT failed to connected to BMS --> try to connect");
+      errorManager.reportError("BT failed to connected to BMS --> try to connect", currentTime);
       btConnected = false;
       resetDisplayBMS();
     }
@@ -250,7 +264,7 @@ void loop() {
       //Serial.print(": ");
       //Serial.println(receivedData.at(rvcdDataIdx-1));
       if ((millis() - receiveTimeout) > 200) {
-        errorHandler.setErrorMsg("Kelly receive timeout: no kelly data updated");
+        errorManager.reportError("Kelly receive timeout: no kelly data updated", currentTime);
         break;
       }      
     }
@@ -286,12 +300,12 @@ void loop() {
     updateDisplayKelly();
     kelly.updateKm();
     if (kelly.errorActive()) {
-      errorHandler.setErrorMsg(kelly.getErrorMsg());
+      errorManager.reportError(kelly.getErrorMsg(), currentTime);
     }
   } else {
     kelly.timeout++;
     if (kelly.timeout > 10) {
-      errorHandler.setErrorMsg("Kelly connection timeout: send new request");
+      errorManager.reportError("Kelly connection timeout: send new request", currentTime);
       KellySerial.write(kelly.command[kelly.commandNum], 3);
       resetDisplayKelly();
     }
@@ -300,20 +314,21 @@ void loop() {
   //GPIO read and update display
   updateDisplayGPIO();
   updateDisplayTime();
-  updateDisplayTemp();
+  //updateDisplayTemp(); //temp steigt im gehause stark an, nicht updaten da nur start wert richtige aussentemp liefert
   
   //Log data to SD card
   if (KellySerial.available() && btConnected) {
     writeToSD(BMS.getVoltage(), BMS.getCurrent(), BMS.getMaxBatteryTemp(), kelly.getSpeed(), kelly.getDayKm());
+    switchBatteryCooling();
   }
 
   //show error msg on display
-  if (errorHandler.getErrorFlag()) {
-    lv_textarea_set_text(ui_errorTextArea, errorHandler.getErrorMsg().c_str());
+  if (errorManager.checkErrorActive()) {
+    lv_textarea_set_text(ui_errorTextArea, errorManager.getErrorMsgs().c_str());
     lv_obj_clear_flag(ui_errorPNG, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(ui_errorTextArea, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_ESimsonMackText, LV_OBJ_FLAG_HIDDEN);
-    errorHandler.resetError();
+    errorManager.clearExpiredErrors(millis());
   } else {
     lv_obj_add_flag(ui_errorPNG, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(ui_errorTextArea, LV_OBJ_FLAG_HIDDEN);

@@ -129,8 +129,8 @@ void resetDisplayBMS() {
   lv_label_set_text_fmt(ui_cellDiffLabel, "%.3f V", 0.0); 
   lv_label_set_text_fmt(ui_batteryPercentLabel, "%d %%", 0);
   lv_slider_set_value(ui_batteryFillLevelSlider, 0, LV_ANIM_ON);
-  lv_label_set_text_fmt(ui_ecoLabel, "%.0f As", 0.0);
-  lv_label_set_text_fmt(ui_averageAhLabel, "%.2f Ah/Km", 0.0);
+  lv_label_set_text_fmt(ui_ecoLabel, "%.0f Wh", 0.0);
+  lv_label_set_text_fmt(ui_averageAhLabel, "%.2f Wh/Km", 0.0);
   lv_label_set_text_fmt(ui_rangeLabel, "%d Km", 0); 
 }
 
